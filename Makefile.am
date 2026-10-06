@@ -14,6 +14,11 @@ install-data-local:
 	$(INSTALL_DATA) $(top_srcdir)/README $(DESTDIR)$(pkgdatadir)
 	$(INSTALL_DATA) $(top_srcdir)/COPYING $(DESTDIR)$(pkgdatadir)
 
+# Match the documentation installed above so distcheck can verify uninstall.
+uninstall-local:
+	rm -f "$(DESTDIR)$(pkgdatadir)/AUTHORS" "$(DESTDIR)$(pkgdatadir)/NEWS" \
+		"$(DESTDIR)$(pkgdatadir)/README" "$(DESTDIR)$(pkgdatadir)/COPYING"
+
 EXTRA_DIST = \
 	.version             \
 	autogen.sh            \
