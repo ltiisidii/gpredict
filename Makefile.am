@@ -21,6 +21,8 @@ uninstall-local:
 
 EXTRA_DIST = \
 	.version             \
+	src/gtk-sat-tree.c    \
+	src/gtk-sat-tree.h    \
 	autogen.sh            \
 	git-version-gen       \
 	intltool-extract.in   \
