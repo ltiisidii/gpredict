@@ -607,16 +607,6 @@ static void load_trsp_list(GtkRigCtrl *ctrl)
                     __FILE__, __func__, trsp->name, ctrl->target->tle.catnr);
     }
 
-    /* limit number of characters to prevent very wide combo box */
-    GList *renderers =
-        gtk_cell_layout_get_cells(GTK_CELL_LAYOUT(ctrl->TrspSel));
-    if (renderers != NULL)
-    {
-        g_object_set(renderers->data, "width-chars", 30, "max-width-chars", 30,
-                     "ellipsize", PANGO_ELLIPSIZE_END, NULL);
-        g_list_free(renderers);
-    }
-
     ctrl->trsp = (trsp_t *)g_slist_nth_data(ctrl->trsplist, 0);
     gtk_combo_box_set_active(GTK_COMBO_BOX(ctrl->TrspSel), 0);
 }
@@ -1064,6 +1054,8 @@ static GtkWidget *create_target_widgets(GtkRigCtrl *ctrl)
 {
     GtkWidget *frame, *table, *label, *track;
     GtkWidget *tune, *trsplock, *hbox;
+    GtkWidget *trsp_entry;
+    GtkCssProvider *trsp_style;
     gchar *buff;
     guint i, n;
     sat_t *sat = NULL;
@@ -1110,7 +1102,23 @@ static GtkWidget *create_target_widgets(GtkRigCtrl *ctrl)
     g_signal_connect(track, "toggled", G_CALLBACK(track_toggle_cb), ctrl);
 
     /* Transponder selector, tune, and trsplock buttons */
-    ctrl->TrspSel = gtk_combo_box_text_new();
+    /* Keep the selected text compact without ellipsizing the popup's cells. */
+    ctrl->TrspSel = gtk_combo_box_text_new_with_entry();
+    trsp_entry = gtk_bin_get_child(GTK_BIN(ctrl->TrspSel));
+    gtk_editable_set_editable(GTK_EDITABLE(trsp_entry), FALSE);
+    gtk_entry_set_width_chars(GTK_ENTRY(trsp_entry), 30);
+    gtk_entry_set_max_width_chars(GTK_ENTRY(trsp_entry), 30);
+
+    /* GTK's list popup uses a scrolled tree view and the monitor work area. */
+    trsp_style = gtk_css_provider_new();
+    gtk_css_provider_load_from_data(trsp_style,
+                                   "* { -GtkComboBox-appears-as-list: true; }",
+                                   -1, NULL);
+    gtk_style_context_add_provider(gtk_widget_get_style_context(ctrl->TrspSel),
+                                   GTK_STYLE_PROVIDER(trsp_style),
+                                   GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref(trsp_style);
+    gtk_combo_box_set_popup_fixed_width(GTK_COMBO_BOX(ctrl->TrspSel), FALSE);
     gtk_widget_set_tooltip_text(ctrl->TrspSel, _("Select a transponder"));
     load_trsp_list(ctrl);
     g_signal_connect(ctrl->TrspSel, "changed", G_CALLBACK(trsp_selected_cb),
