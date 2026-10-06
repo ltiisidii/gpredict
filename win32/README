@@ -25,3 +25,66 @@ a versioned ZIP.
 
 Good luck!
 Phlash.
+
+### Native Windows x64 builds with current MSYS2 ###
+
+Use the MSYS2 MINGW64 shell (not MSYS or UCRT64). Update MSYS2 with
+`pacman -Syu`, reopening the shell and repeating if a core update requires it.
+Install the build and packaging dependencies:
+
+    pacman -S --needed git make zip unzip mingw-w64-x86_64-gcc \
+        mingw-w64-x86_64-pkgconf mingw-w64-x86_64-gtk3 \
+        mingw-w64-x86_64-librsvg mingw-w64-x86_64-adwaita-icon-theme
+
+GTK installs its GLib, GdkPixbuf, Cairo, Pango and other native dependencies.
+SVG support requires librsvg explicitly. This Windows Makefile uses WinINet
+instead of libcurl and no longer requires GooCanvas, Autotools or Hamlib to
+compile. Hamlib's rigctld/rotctld remain separate optional runtime services.
+
+From the repository root:
+
+    cd win32
+    make -j"$(nproc)"
+    make dist
+
+config.mk already selects /mingw64. Other existing MinGW installations can
+still be selected with `make MINGW_ROOT=/path/to/mingw ...`. Version numbers
+come from v-prefixed Git tags; with no tags, the release version in NEWS is
+used with build number zero. The source commit is recorded separately by CI.
+The Makefile uses Gpredict's existing portable strcasestr implementation for
+the two Windows objects that call the unavailable GNU function.
+
+`make dist DIST_ARCHIVE=gpredict-2.6-win64.zip` optionally sets the ZIP name;
+without this option the historical versioned filename is preserved. The ZIP
+contains gpredict.exe, gpredict-con.exe, libsgpsdp.dll, native MinGW runtime
+DLLs and GLib helpers (when supplied), image loaders, generated relocatable
+loaders.cache, GTK configuration, compiled GLib schemas, the complete Adwaita
+and hicolor themes (including AdwaitaLegacy when installed), dependency
+licenses, application data and maps.
+The checked-in loaders.cache is retained for reference; current distributions
+generate their cache from the installed loaders rather than reuse it.
+Extract the entire ZIP and run gpredict/gpredict.exe. No MSYS2 installation
+is required. User settings continue to use Gpredict's existing user directory.
+
+### GitHub Actions ###
+
+Run Actions -> Windows x64 Build -> Run workflow. The workflow uses the
+standard windows-2022 runner, a fresh MSYS2 MINGW64 environment, and the same
+`make` / `make dist` targets. For the current release, the artifact
+`gpredict-windows-x64` contains `gpredict-2.6-win64.zip`, SHA256SUMS, the source
+commit and the complete installed package version list.
+
+Before upload, CI tests ZIP integrity, extracts to a path containing spaces,
+checks every executable/DLL for x64 and missing imports (including transitive
+loader dependencies), rejects MSYS/Cygwin dependencies, checks data, schemas
+and relative PNG/JPEG/SVG loader paths, decodes example PNG/JPEG/SVG files
+using a temporary native GdkPixbuf tool, and runs gpredict-con.exe --help from
+outside the package with only Windows system directories on PATH. The image
+test tool is not included in the ZIP.
+
+MSYS2 is a rolling distribution: this is a repeatable build procedure with
+recorded inputs, not a byte-for-byte reproducible build across different
+dates. Dependency versions, action tags and ZIP timestamps can change.
+The startup check does not replace interactive testing of maps, icons,
+network updates, radio/rotator services or a clean Windows machine.
+The existing Windows translation configuration is preserved.

@@ -28,21 +28,16 @@ MINGW_ROOT=/mingw64
 
 PKG_CONFIG_PATH = "$(abspath $(MINGW_ROOT)/lib/pkgconfig)"
 
-# binary dependencies to be deployed with gpredict.exe
-# librsvg-2-2.dll and libxml2-16.dll are needed for pixbufloader_svg.dll
-# gspawn-win64-helper.exe and gspawn-win64-helper-console.exe are required for hyperlinks to launch
+# Deploy all native DLLs, including transitive loader dependencies, without
+# fixing DLL ABI suffixes. Include GLib spawn helpers when supplied by GLib.
 BINDEPS = \
 	$(wildcard $(MINGW_ROOT)/bin/*.dll) \
-	$(MINGW_ROOT)/lib/gdk-pixbuf-2.0/2.10.0/loaders/pixbufloader_svg.dll \
-	$(MINGW_ROOT)/lib/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-png.dll \
-	$(MINGW_ROOT)/lib/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-jpeg.dll \
-	$(MINGW_ROOT)/bin/librsvg-2-2.dll \
-	$(MINGW_ROOT)/bin/libxml2-16.dll \
-	$(MINGW_ROOT)/bin/gspawn-win64-helper.exe \
-	$(MINGW_ROOT)/bin/gspawn-win64-helper-console.exe
+	$(wildcard $(MINGW_ROOT)/bin/gspawn-win*-helper*.exe)
 
 # where to put the loaders.cache file
 LOADERS = lib/gdk-pixbuf-2.0/2.10.0
+PIXBUF_LOADERS = $(wildcard $(MINGW_ROOT)/$(LOADERS)/loaders/*.dll)
+PIXBUF_QUERY = $(MINGW_ROOT)/bin/gdk-pixbuf-query-loaders.exe
 
 # other miscellaneous folders to deploy with the binary
 GTKETC  = $(MINGW_ROOT)/etc
@@ -51,7 +46,11 @@ ADWAITA = $(MINGW_ROOT)/share/icons/Adwaita
 
 # Autoversioning from nearest git tag, assumes v<x>.<y> tag format.
 
-GITVER := $(shell git describe)
+# --long provides a build number even at a tag; forks may have no tags.
+GITVER := $(shell git describe --tags --long --match 'v[0-9]*' 2>/dev/null)
+ifeq ($(strip $(GITVER)),)
+GITVER := v$(shell sed -n 's/^Changes in version \([0-9][0-9.]*\).*/\1/p' ../NEWS | head -n 1)-0-g$(shell git rev-parse --short HEAD)
+endif
 GITSEP := $(subst -, ,$(GITVER))
 GITTAG := $(word 1,$(GITSEP))
 GITBLD := $(word 2,$(GITSEP))

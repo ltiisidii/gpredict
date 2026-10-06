@@ -1,0 +1,172 @@
+name: Windows x64 Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - "src/**"
+      - "win32/**"
+      - "data/**"
+      - "pixmaps/**"
+      - "NEWS"
+      - ".github/workflows/windows-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Gpredict Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            make
+            zip
+            unzip
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-gtk3
+            mingw-w64-x86_64-librsvg
+            mingw-w64-x86_64-adwaita-icon-theme
+
+      - name: Show environment and record dependencies
+        run: |
+          set -euo pipefail
+          echo "MSYSTEM=$MSYSTEM MINGW_PREFIX=$MINGW_PREFIX"
+          uname -a
+          gcc -dumpmachine
+          test "$MSYSTEM" = MINGW64
+          test "$(gcc -dumpmachine)" = x86_64-w64-mingw32
+          command -v gcc make pkg-config windres
+          gcc --version
+          make --version
+          pkg-config --version
+          pkg-config --modversion gtk+-3.0 glib-2.0 gdk-pixbuf-2.0
+          git describe --tags --long || true
+          git rev-parse HEAD > source-commit.txt
+          pacman -Q | tee msys2-packages.txt
+
+      - name: Build and package using the existing Windows Makefile
+        working-directory: win32
+        run: |
+          set -euo pipefail
+          make -j"$(nproc)"
+          version=$(sed -n 's/^Changes in version \([0-9][0-9.]*\).*/\1/p' ../NEWS | head -n 1)
+          test -n "$version"
+          archive="gpredict-${version}-win64.zip"
+          make dist DIST_ARCHIVE="$archive"
+          unzip -t "$archive"
+          unzip -l "$archive"
+          sha256sum "$archive" | tee SHA256SUMS
+          find . -maxdepth 1 -type f \( -name '*.exe' -o -name '*.dll' -o -name '*.zip' \) -print | sort
+          echo "GPREDICT_ARCHIVE=$archive" >> "$GITHUB_ENV"
+          echo "MINGW_BIN=$(cygpath -w "$MINGW_PREFIX/bin")" >> "$GITHUB_ENV"
+
+      - name: Verify extracted portable runtime without MSYS2 on PATH
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:GITHUB_WORKSPACE "win32/$env:GPREDICT_ARCHIVE"
+          $extract = Join-Path $env:RUNNER_TEMP 'portable test'
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+          $root = Join-Path $extract 'gpredict'
+          $objdump = Join-Path $env:MINGW_BIN 'objdump.exe'
+          $system = Join-Path $env:SystemRoot 'System32'
+          foreach ($file in Get-ChildItem $root -Recurse -File | Where-Object Extension -in '.exe', '.dll') {
+            $headers = & $objdump -p $file.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Cannot inspect $($file.Name)" }
+            if (!($headers -match 'file format pei-x86-64')) { throw "Not x64: $($file.Name)" }
+            foreach ($line in $headers) {
+              if ($line -match 'DLL Name:\s+(\S+)') {
+                $dll = $Matches[1]
+                if ($dll -match '^(msys-|cygwin)') { throw "POSIX runtime dependency: $dll" }
+                if ($dll -match '^(api-ms-win-|ext-ms-win-)') { continue }
+                if (!(Test-Path (Join-Path $root $dll)) -and !(Test-Path (Join-Path $system $dll))) {
+                  throw "Missing $dll required by $($file.Name)"
+                }
+              }
+            }
+          }
+          foreach ($required in @('gpredict.exe', 'gpredict-con.exe', 'libsgpsdp.dll',
+              'share/gpredict/data/satdata/satellites.dat', 'share/gpredict/data/Amateur.mod',
+              'share/gpredict/pixmaps/maps/earth_800.png',
+              'share/glib-2.0/schemas/gschemas.compiled', 'share/icons/Adwaita/index.theme')) {
+            if (!(Test-Path (Join-Path $root $required))) { throw "Missing $required" }
+          }
+          $cache = Join-Path $root 'lib/gdk-pixbuf-2.0/2.10.0/loaders.cache'
+          $cacheText = Get-Content -LiteralPath $cache -Raw
+          foreach ($format in 'png', 'jpeg', 'svg') {
+            if ($cacheText -notmatch "(?m)^`"$format`" ") { throw "Missing $format loader" }
+          }
+          foreach ($line in Get-Content -LiteralPath $cache) {
+            if ($line -match '^"([^"\r\n]+\.dll)"$') {
+              $module = $Matches[1]
+              if ($module -match '[/\\:]' -or !(Test-Path (Join-Path $root $module))) {
+                throw "Loader path is not portable: $module"
+              }
+            }
+          }
+          $env:PATH = "$system;$env:SystemRoot"
+          foreach ($variable in 'GTK_PATH', 'GTK_DATA_PREFIX', 'GDK_PIXBUF_MODULE_FILE',
+              'GDK_PIXBUF_MODULEDIR', 'GSETTINGS_SCHEMA_DIR', 'GI_TYPELIB_PATH') {
+            Remove-Item "Env:$variable" -ErrorAction SilentlyContinue
+          }
+          # Run from outside the extracted folder, including a path with spaces.
+          Set-Location $env:RUNNER_TEMP
+          # Use a temporary native GdkPixbuf tool to exercise the bundled loaders.
+          $probe = Join-Path $root 'gdk-pixbuf-pixdata.exe'
+          Copy-Item -LiteralPath (Join-Path $env:MINGW_BIN 'gdk-pixbuf-pixdata.exe') -Destination $probe
+          foreach ($image in @('pixmaps/maps/earth_800.png', 'pixmaps/maps/nasa-topo_1024.jpg',
+              'pixmaps/logos/gpredict_icon_color.svg')) {
+            $inputImage = Join-Path $root "share/gpredict/$image"
+            $outputImage = Join-Path $extract ((Split-Path $image -Leaf) + '.pixdata')
+            & $probe $inputImage $outputImage
+            if ($LASTEXITCODE -ne 0 -or !(Test-Path $outputImage)) {
+              throw "Portable image loading failed: $image"
+            }
+          }
+          Remove-Item -LiteralPath $probe
+          $process = Start-Process -FilePath (Join-Path $root 'gpredict-con.exe') -ArgumentList '--help' -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $extract 'help.txt') -RedirectStandardError (Join-Path $extract 'stderr.txt')
+          $null = $process.Handle
+          if (!$process.WaitForExit(30000)) {
+            $process.Kill()
+            throw 'Portable startup timed out'
+          }
+          Get-Content (Join-Path $extract 'help.txt'), (Join-Path $extract 'stderr.txt')
+          if ($process.ExitCode -ne 0) { throw "Portable startup failed: $($process.ExitCode)" }
+          if ((Get-Content (Join-Path $extract 'help.txt') -Raw) -notmatch 'Gpredict') {
+            throw 'Gpredict help output was not produced'
+          }
+          Get-ChildItem $root -Recurse -File | Select-Object FullName, Length
+
+      - name: Upload Windows x64 portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpredict-windows-x64
+          path: |
+            win32/*-win64.zip
+            win32/SHA256SUMS
+            msys2-packages.txt
+            source-commit.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

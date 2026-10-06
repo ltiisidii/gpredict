@@ -7,6 +7,7 @@ include config.mk
 # version string in C code
 VERSION_SHORT = $(GITMAJ).$(GITMIN).$(GITBLD)
 VERSION_LONG = $(GITMAJ).$(GITMIN).0.$(GITBLD)
+DIST_ARCHIVE ?= gpredict-$(VERSION_SHORT).zip
 
 # directories
 topsrc = ..
@@ -158,30 +159,33 @@ OBJS = $(SGPSDPOBJ) $(NXJSONOBJ) $(GPREDICTOBJ)
 
 all: libsgpsdp.dll gpredict.exe gpredict-con.exe
 
-dist: gpredict-$(VERSION_SHORT).zip
+# MinGW lacks GNU strcasestr; use the existing portable implementation.
+gtk-rig-ctrl.o gtk-rot-ctrl.o: CFLAGS += -Dstrcasestr=gpredict_strcasestr
 
-gpredict-$(VERSION_SHORT).zip: all
+dist: $(DIST_ARCHIVE)
+
+$(DIST_ARCHIVE): all
 	mkdir -p gpredict/doc
 	cp -p ../AUTHORS ../COPYING ../NEWS ../README gpredict/doc
 	mkdir -p gpredict/share/gpredict
-	cp -p libsgpsdp.dll gpredict.exe gpredict-con.exe $(BINDEPS) gpredict
+	cp -p libsgpsdp.dll gpredict.exe gpredict-con.exe $(BINDEPS) $(PIXBUF_LOADERS) gpredict
 	cp -rp ../data gpredict/share/gpredict
 	cp -rp ../pixmaps gpredict/share/gpredict
 	cp -rp ../po gpredict/share/gpredict
 	mkdir -p gpredict/$(LOADERS)
-	cp -p loaders.cache gpredict/$(LOADERS)
+	$(PIXBUF_QUERY) $(PIXBUF_LOADERS) > gpredict/$(LOADERS)/loaders.cache.tmp
+	# Relative module paths are resolved from the relocated GdkPixbuf DLL.
+	sed -E 's@^".*[/\\]([^/\\]+\.dll)"$$@"\1"@' \
+		gpredict/$(LOADERS)/loaders.cache.tmp > gpredict/$(LOADERS)/loaders.cache
+	rm gpredict/$(LOADERS)/loaders.cache.tmp
 	cp -rp $(GTKETC) gpredict
 	mkdir -p gpredict/share/glib-2.0
 	cp -rp $(SCHEMAS) gpredict/share/glib-2.0
-	mkdir -p gpredict/share/icons/Adwaita
-	cp -rp $(ADWAITA)/scalable gpredict/share/icons/Adwaita/
-	cp -rp $(ADWAITA)/index.theme gpredict/share/icons/Adwaita/
-	cp -rp $(ADWAITA)/icon-theme.cache gpredict/share/icons/Adwaita/
-	
-	# gtk runtime
-	for dll in $(shell ldd ./gpredict.exe | grep /mingw64 | awk '{print $$3}'); do \
-		cp -p "$$dll" gpredict/; \
-	done
+	mkdir -p gpredict/share/icons
+	cp -rp $(ADWAITA) gpredict/share/icons/
+	cp -rp $(wildcard $(MINGW_ROOT)/share/icons/AdwaitaLegacy) $(MINGW_ROOT)/share/icons/hicolor gpredict/share/icons/
+	mkdir -p gpredict/share/licenses
+	cp -rp $(MINGW_ROOT)/share/licenses/. gpredict/share/licenses/
 	
 	zip -r $@ gpredict
 	rm -rf gpredict
@@ -191,7 +195,7 @@ gpredict-$(VERSION_SHORT).zip: all
 gpredict.exe: TARGET:=-mwindows
 gpredict-con.exe: TARGET:=-mconsole
 
-gpredict.exe gpredict-con.exe: $(OBJS) gpredict_res.o
+gpredict.exe gpredict-con.exe: $(OBJS) gpredict_res.o | libsgpsdp.dll
 	$(CC) $(TARGET) -mthreads -o $@ $^ $(CFLAGS) $(GTK_CFLAGS) $(LIBS) $(GUI_LIBS) -lmingwex -s
 
 gpredict_res.o: gpredict.rc
