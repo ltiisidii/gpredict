@@ -79,6 +79,15 @@ standard windows-2022 runner, a fresh MSYS2 UCRT64 environment, and the same
 `gpredict-windows-x64` contains `gpredict-2.6-win64.zip`, SHA256SUMS, the source
 commit and the complete installed package version list.
 
+A preceding Ubuntu job generates gpredict-<version>.tar.bz2 with the existing
+Autotools distribution target and verifies it with `make distcheck`, including
+a build/install/uninstall from the extracted archive. The release and Windows
+artifact include this source tarball; SHA256SUMS covers both it and the ZIP.
+GitHub also supplies Source code (zip) and Source code (tar.gz) automatically
+for the release tag. Those are repository snapshots; the .tar.bz2 is the
+prepared distribution with configure and generated build files. Its checksum
+belongs to this fork's source commit and differs from upstream's release.
+
 Successful push and manual runs also publish the same files to GitHub Releases, using
 the workflow's GITHUB_TOKEN with contents: write permission. The tag is
 windows-v<version>-build.<run-number> (for example windows-v2.6-build.3), targeting

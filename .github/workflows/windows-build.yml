@@ -10,8 +10,47 @@ permissions:
   contents: write
 
 jobs:
+  source-dist:
+    name: Build and verify source distribution
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install source distribution dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libtool intltool autoconf automake libcurl4-openssl-dev \
+            pkg-config libglib2.0-dev libgtk-3-dev
+
+      - name: Generate and verify the Autotools source tarball
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^Changes in version \([0-9][0-9.]*\).*/\1/p' NEWS | head -n 1)
+          test -n "$version"
+          printf '%s\n' "$version" > .tarball-version
+          ./autogen.sh
+          make -j"$(nproc)" distcheck
+          test -f "gpredict-${version}.tar.bz2"
+          tar -tjf "gpredict-${version}.tar.bz2"
+          sha256sum "gpredict-${version}.tar.bz2" > SOURCE_SHA256SUMS
+
+      - name: Upload verified source distribution
+        uses: actions/upload-artifact@v6
+        with:
+          name: gpredict-source
+          path: |
+            gpredict-*.tar.bz2
+            SOURCE_SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
   build-windows:
     name: Build Gpredict Windows x64
+    needs: source-dist
     runs-on: windows-2022
     timeout-minutes: 45
 
@@ -24,6 +63,12 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Download verified source distribution
+        uses: actions/download-artifact@v7
+        with:
+          name: gpredict-source
+          path: win32
 
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
@@ -74,6 +119,7 @@ jobs:
           unzip -t "$archive"
           unzip -l "$archive"
           sha256sum "$archive" | tee SHA256SUMS
+          cat SOURCE_SHA256SUMS >> SHA256SUMS
           find . -maxdepth 1 -type f \( -name '*.exe' -o -name '*.dll' -o -name '*.zip' \) -print | sort
           echo "GPREDICT_ARCHIVE=$archive" >> "$GITHUB_ENV"
           echo "GPREDICT_VERSION=$version" >> "$GITHUB_ENV"
@@ -162,6 +208,7 @@ jobs:
           name: gpredict-windows-x64
           path: |
             win32/*-win64.zip
+            win32/gpredict-*.tar.bz2
             win32/SHA256SUMS
             msys2-packages.txt
             source-commit.txt
@@ -178,7 +225,7 @@ jobs:
           # Keep Windows build tags outside config.mk's upstream v[0-9]* tags.
           $tag = "windows-v$env:GPREDICT_VERSION-build.$env:GITHUB_RUN_NUMBER"
           $title = "Gpredict $env:GPREDICT_VERSION Windows x64 (build $env:GITHUB_RUN_NUMBER)"
-          $assets = @("win32/$env:GPREDICT_ARCHIVE", 'win32/SHA256SUMS',
+          $assets = @("win32/$env:GPREDICT_ARCHIVE", "win32/gpredict-$env:GPREDICT_VERSION.tar.bz2", 'win32/SHA256SUMS',
               'msys2-packages.txt', 'source-commit.txt')
           foreach ($asset in $assets) {
             if (!(Test-Path -LiteralPath $asset)) { throw "Missing release asset: $asset" }
@@ -188,6 +235,7 @@ jobs:
             "Portable Windows x64 build of Gpredict $env:GPREDICT_VERSION.",
             '',
             "Download $env:GPREDICT_ARCHIVE, extract the entire ZIP and run gpredict/gpredict.exe. MSYS2 is not required.",
+            "For source builds, download gpredict-$env:GPREDICT_VERSION.tar.bz2. This Autotools distribution includes configure and was verified with make distcheck.",
             '',
             "Source commit: $env:GITHUB_SHA",
             "Build: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID",
