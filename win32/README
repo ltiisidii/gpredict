@@ -74,6 +74,16 @@ standard windows-2022 runner, a fresh MSYS2 MINGW64 environment, and the same
 `gpredict-windows-x64` contains `gpredict-2.6-win64.zip`, SHA256SUMS, the source
 commit and the complete installed package version list.
 
+Successful manual runs also publish the same files to GitHub Releases, using
+the workflow's GITHUB_TOKEN with contents: write permission. The tag is
+windows-v<version>-build.<run-number> (for example windows-v2.6-build.3), targeting
+the exact source commit. Each new manual run creates a separate release;
+rerunning the same run updates its assets. Push-triggered builds publish only
+the Actions artifact. Release publication happens after all portable checks
+and the artifact upload succeed, and its URL appears in the run summary.
+The windows- prefix keeps these tags outside config.mk's upstream version
+tag matching, so subsequent builds retain valid numeric resource versions.
+
 Before upload, CI tests ZIP integrity, extracts to a path containing spaces,
 checks every executable/DLL for x64 and missing imports (including transitive
 loader dependencies), rejects MSYS/Cygwin dependencies, checks data, schemas

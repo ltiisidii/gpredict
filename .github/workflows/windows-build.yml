@@ -14,7 +14,7 @@ on:
       - ".github/workflows/windows-build.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows:
@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -36,6 +36,8 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
+          # Keep the validated MinGW/MSVCRT build for this first Windows stage.
+          suppress-deprecation-warnings: msystem-mingw64
           update: true
           install: >-
             git
@@ -79,6 +81,7 @@ jobs:
           sha256sum "$archive" | tee SHA256SUMS
           find . -maxdepth 1 -type f \( -name '*.exe' -o -name '*.dll' -o -name '*.zip' \) -print | sort
           echo "GPREDICT_ARCHIVE=$archive" >> "$GITHUB_ENV"
+          echo "GPREDICT_VERSION=$version" >> "$GITHUB_ENV"
           echo "MINGW_BIN=$(cygpath -w "$MINGW_PREFIX/bin")" >> "$GITHUB_ENV"
 
       - name: Verify extracted portable runtime without MSYS2 on PATH
@@ -159,7 +162,7 @@ jobs:
           Get-ChildItem $root -Recurse -File | Select-Object FullName, Length
 
       - name: Upload Windows x64 portable package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gpredict-windows-x64
           path: |
@@ -170,3 +173,40 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
+
+      - name: Publish verified Windows x64 package to Releases
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Keep Windows build tags outside config.mk's upstream v[0-9]* tags.
+          $tag = "windows-v$env:GPREDICT_VERSION-build.$env:GITHUB_RUN_NUMBER"
+          $title = "Gpredict $env:GPREDICT_VERSION Windows x64 (build $env:GITHUB_RUN_NUMBER)"
+          $assets = @("win32/$env:GPREDICT_ARCHIVE", 'win32/SHA256SUMS',
+              'msys2-packages.txt', 'source-commit.txt')
+          foreach ($asset in $assets) {
+            if (!(Test-Path -LiteralPath $asset)) { throw "Missing release asset: $asset" }
+          }
+          $notes = Join-Path $env:RUNNER_TEMP 'windows-release-notes.md'
+          @(
+            "Portable Windows x64 build of Gpredict $env:GPREDICT_VERSION.",
+            '',
+            "Download $env:GPREDICT_ARCHIVE, extract the entire ZIP and run gpredict/gpredict.exe. MSYS2 is not required.",
+            '',
+            "Source commit: $env:GITHUB_SHA",
+            "Build: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID",
+            '',
+            'Includes SHA256SUMS and the complete MSYS2 package version list.'
+          ) | Set-Content -LiteralPath $notes -Encoding utf8
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # A rerun of the same workflow run reuses its tag and replaces assets.
+            gh release upload $tag @assets --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create $tag @assets --target $env:GITHUB_SHA --title $title --notes-file $notes --repo $env:GITHUB_REPOSITORY
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
+          gh release view $tag --repo $env:GITHUB_REPOSITORY --json url --jq '.url' >> $env:GITHUB_STEP_SUMMARY
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify the published release' }
