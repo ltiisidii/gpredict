@@ -15,6 +15,7 @@ install-data-local:
 	$(INSTALL_DATA) $(top_srcdir)/COPYING $(DESTDIR)$(pkgdatadir)
 
 EXTRA_DIST = \
+	.version             \
 	autogen.sh            \
 	git-version-gen       \
 	intltool-extract.in   \
