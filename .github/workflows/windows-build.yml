@@ -5,13 +5,6 @@ on:
   push:
     branches:
       - master
-    paths:
-      - "src/**"
-      - "win32/**"
-      - "data/**"
-      - "pixmaps/**"
-      - "NEWS"
-      - ".github/workflows/windows-build.yml"
 
 permissions:
   contents: write
@@ -35,20 +28,18 @@ jobs:
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
-          # Keep the validated MinGW/MSVCRT build for this first Windows stage.
-          suppress-deprecation-warnings: msystem-mingw64
+          msystem: UCRT64
           update: true
           install: >-
             git
             make
             zip
             unzip
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-gtk3
-            mingw-w64-x86_64-librsvg
-            mingw-w64-x86_64-adwaita-icon-theme
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-gtk3
+            mingw-w64-ucrt-x86_64-librsvg
+            mingw-w64-ucrt-x86_64-adwaita-icon-theme
 
       - name: Show environment and record dependencies
         run: |
@@ -56,14 +47,18 @@ jobs:
           echo "MSYSTEM=$MSYSTEM MINGW_PREFIX=$MINGW_PREFIX"
           uname -a
           gcc -dumpmachine
-          test "$MSYSTEM" = MINGW64
+          test "$MSYSTEM" = UCRT64
           test "$(gcc -dumpmachine)" = x86_64-w64-mingw32
           command -v gcc make pkg-config windres
           gcc --version
           make --version
           pkg-config --version
           pkg-config --modversion gtk+-3.0 glib-2.0 gdk-pixbuf-2.0
-          git describe --tags --long || true
+          if version_tag=$(git describe --tags --long --match 'v[0-9]*' 2>/dev/null); then
+            echo "Source version tag: $version_tag"
+          else
+            echo "No upstream version tags; using the release version from NEWS"
+          fi
           git rev-parse HEAD > source-commit.txt
           pacman -Q | tee msys2-packages.txt
 
@@ -175,7 +170,6 @@ jobs:
           retention-days: 30
 
       - name: Publish verified Windows x64 package to Releases
-        if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}

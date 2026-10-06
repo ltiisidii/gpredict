@@ -28,13 +28,13 @@ Phlash.
 
 ### Native Windows x64 builds with current MSYS2 ###
 
-Use the MSYS2 MINGW64 shell (not MSYS or UCRT64). Update MSYS2 with
+Use the MSYS2 UCRT64 shell. Update MSYS2 with
 `pacman -Syu`, reopening the shell and repeating if a core update requires it.
 Install the build and packaging dependencies:
 
-    pacman -S --needed git make zip unzip mingw-w64-x86_64-gcc \
-        mingw-w64-x86_64-pkgconf mingw-w64-x86_64-gtk3 \
-        mingw-w64-x86_64-librsvg mingw-w64-x86_64-adwaita-icon-theme
+    pacman -S --needed git make zip unzip mingw-w64-ucrt-x86_64-gcc \
+        mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-gtk3 \
+        mingw-w64-ucrt-x86_64-librsvg mingw-w64-ucrt-x86_64-adwaita-icon-theme
 
 GTK installs its GLib, GdkPixbuf, Cairo, Pango and other native dependencies.
 SVG support requires librsvg explicitly. This Windows Makefile uses WinINet
@@ -47,10 +47,13 @@ From the repository root:
     make -j"$(nproc)"
     make dist
 
-config.mk already selects /mingw64. Other existing MinGW installations can
+config.mk selects the active MSYS2 MINGW_PREFIX (/ucrt64 for UCRT64), falling
+back to /mingw64 outside MSYS2. Other existing MinGW installations can
 still be selected with `make MINGW_ROOT=/path/to/mingw ...`. Version numbers
 come from v-prefixed Git tags; with no tags, the release version in NEWS is
 used with build number zero. The source commit is recorded separately by CI.
+Run `make clean` before changing environments so MSVCRT and UCRT objects/DLLs
+are never mixed. The UCRT64 package targets Windows 10/11 x64.
 The Makefile uses Gpredict's existing portable strcasestr implementation for
 the two Windows objects that call the unavailable GNU function.
 
@@ -68,18 +71,20 @@ is required. User settings continue to use Gpredict's existing user directory.
 
 ### GitHub Actions ###
 
-Run Actions -> Windows x64 Build -> Run workflow. The workflow uses the
-standard windows-2022 runner, a fresh MSYS2 MINGW64 environment, and the same
+Every push to master runs the build and publishes a verified release.
+Actions -> Windows x64 Build -> Run workflow also allows manual builds.
+The workflow uses the
+standard windows-2022 runner, a fresh MSYS2 UCRT64 environment, and the same
 `make` / `make dist` targets. For the current release, the artifact
 `gpredict-windows-x64` contains `gpredict-2.6-win64.zip`, SHA256SUMS, the source
 commit and the complete installed package version list.
 
-Successful manual runs also publish the same files to GitHub Releases, using
+Successful push and manual runs also publish the same files to GitHub Releases, using
 the workflow's GITHUB_TOKEN with contents: write permission. The tag is
 windows-v<version>-build.<run-number> (for example windows-v2.6-build.3), targeting
-the exact source commit. Each new manual run creates a separate release;
-rerunning the same run updates its assets. Push-triggered builds publish only
-the Actions artifact. Release publication happens after all portable checks
+the exact source commit. Each new run creates a separate release;
+rerunning the same run updates its assets. Release publication happens
+automatically after all portable checks
 and the artifact upload succeed, and its URL appears in the run summary.
 The windows- prefix keeps these tags outside config.mk's upstream version
 tag matching, so subsequent builds retain valid numeric resource versions.

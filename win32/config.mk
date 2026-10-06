@@ -24,7 +24,8 @@
 # For 64 bit:
 # MINGW_ROOT=../../msys64/mingw64
 #
-MINGW_ROOT=/mingw64
+# Follow the active MSYS2 environment; preserve the legacy cross-build default.
+MINGW_ROOT ?= $(if $(MINGW_PREFIX),$(MINGW_PREFIX),/mingw64)
 
 PKG_CONFIG_PATH = "$(abspath $(MINGW_ROOT)/lib/pkgconfig)"
 
